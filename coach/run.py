@@ -19,7 +19,7 @@ from . import jobs
 from .api import IntervalsAPI
 
 CRON_JOBS = {  # must match .github/workflows/coach.yml
-    "15 */2 * * *": "debrief",
+    "*/30 * * * *": "debrief",
     "0 4 * * *": "briefing",
     "0 18 * * 0": "weekly",
 }

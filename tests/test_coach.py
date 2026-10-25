@@ -353,7 +353,9 @@ def test_calendar_sync_builds_expected_events():
     assert done["start"]["dateTime"] == "2026-10-26T07:05:00" and "— Plan —" in done["description"]
     planned = bodies["event-10"]
     assert planned["summary"].startswith("🏃 Long Run · ≈") and "90 min" in planned["summary"]
-    assert planned["description"].startswith("Ziel: Grundlage.") and planned["start"] == {"date": "2026-10-31"}
+    assert planned["description"].startswith("Ziel: Grundlage.")
+    assert planned["start"]["dateTime"] == "2026-10-31T10:00:00"          # Saturday default
+    assert planned["end"]["dateTime"] == "2026-10-31T11:30:00"
     assert bodies["activity-i2"]["summary"] == "✅ Lauf · 23,4 km"
     assert bodies["note-11"]["summary"] == "📊 Wochenrückblick KW 43"
 
@@ -369,3 +371,11 @@ def test_calendar_sync_is_idempotent_and_deletes_removed_plans():
     stats = sync(_cal_api(), cal2, CFG, date(2026, 10, 26))
     assert stats == {"neu": 0, "geändert": 0, "gelöscht": 1, "unverändert": 4}
     assert cal2.calls == [("delete", "gone")]
+
+
+def test_planned_slot_weekday_default_and_explicit_time():
+    from coach.gcal import _planned_slot
+    tue = _planned_slot({"start_date_local": "2026-10-27T00:00:00"}, "2026-10-27", 2700, CFG, "Europe/Berlin")
+    assert tue["start"]["dateTime"] == "2026-10-27T16:30:00" and tue["end"]["dateTime"] == "2026-10-27T17:15:00"
+    own = _planned_slot({"start_date_local": "2026-10-27T07:15:00"}, "2026-10-27", 2700, CFG, "Europe/Berlin")
+    assert own["start"]["dateTime"] == "2026-10-27T07:15:00"

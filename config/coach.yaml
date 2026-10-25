@@ -50,3 +50,6 @@ gcal:
   enabled: true              # needs secrets GOOGLE_SA_JSON + GCAL_CALENDAR_ID
   days_back: 7               # sync window
   days_ahead: 14
+  default_times:             # start time of planned workouts (unless set in intervals.icu)
+    weekday: "16:30"
+    weekend: "10:00"

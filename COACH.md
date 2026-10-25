@@ -6,7 +6,7 @@ kommen aus dem Gemini Free Tier.
 
 | Job | Wann | Ergebnis in intervals.icu |
 |---|---|---|
-| `debrief` | alle 2 h | Kommentar mit Score + Debriefing an jeder neuen Laufaktivität |
+| `debrief` | alle 30 min | Kommentar mit Score + Debriefing an jeder neuen Laufaktivität |
 | `briefing` | täglich 05:00 (Winter) / 06:00 (Sommer) | Zeile „Tagesform (auto)“ im heutigen Workout |
 | `weekly` | sonntags 19:00 / 20:00 | Notiz „Wochenrückblick KW xx“ im Kalender |
 | `calendar` | nach jedem Job | Google-Kalender „Training“: Plan, Briefing, Debriefing mit Score im Titel |
@@ -38,7 +38,7 @@ COACH.md                    neu
 ## 3. Lokal testen
 ```
 python3 -m pip install requests pyyaml pytest
-python3 -m pytest tests/test_coach.py -q        # erwartet: 18 passed
+python3 -m pytest tests/test_coach.py -q        # erwartet: 19 passed
 ```
 
 ## 4. Hochladen
@@ -66,7 +66,8 @@ Aktivitäts-ID, Titel und Score; `--dry-run` zeigt den kompletten Text. Nur kurz
 
 ## Google Kalender (optional, kostenlos)
 Termine im eigenen Kalender „Training“ (7 Tage zurück, 14 Tage voraus):
-- geplant: „🏃 Long Run · ≈15 km · 90 min“ (ganztägig), Beschreibung = Briefing + Plan
+- geplant: „🏃 Long Run · ≈15 km · 90 min“, Mo–Fr 16:30, Sa/So 10:00 (änderbar in config/coach.yaml),
+  Beschreibung = Briefing + Plan
 - erledigt: „✅ 🟢 92 · Long Run“ zur tatsächlichen Laufzeit, Beschreibung = Score, Ist-Daten, Debriefing, Plan
 - verpasst: „⏭️ Long Run (nicht absolviert)“
 - sonntags: „📊 Wochenrückblick KW xx“
@@ -78,6 +79,16 @@ Einrichtung:
    freigeben mit „Änderungen an Terminen vornehmen“ → Kalender-ID kopieren
 4. GitHub-Secrets: `GOOGLE_SA_JSON` (kompletter Inhalt der JSON-Datei), `GCAL_CALENDAR_ID`
 5. Test: Actions → coach → Run workflow → Job `calendar`, Args `--dry-run`
+
+## Verschieben im Kalender (Push, ca. 1 Minute)
+Ein Google-Apps-Script (apps-script/Code.gs) reagiert auf Änderungen im Kalender „Training“
+und schreibt das neue Datum sofort nach intervals.icu, von dort geht es an Garmin.
+1. script.google.com → „Neues Projekt“ → Name „Coach Kalender-Sync“
+2. Inhalt von apps-script/Code.gs einfügen, oben CALENDAR_ID eintragen, speichern
+3. Links „Dienste“ (+) → „Google Calendar API“ → Hinzufügen
+4. Zahnrad „Projekteinstellungen“ → Skripteigenschaften → INTERVALS_API_KEY anlegen
+5. Oben Funktion „setup“ wählen → Ausführen → Berechtigungen erlauben
+Löschen im Kalender löscht kein Training – dafür den Claude-Chat nutzen.
 
 ## Manuelle Läufe
 | Zweck | Job | Args |

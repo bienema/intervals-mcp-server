@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+from urllib.parse import quote
 from datetime import date, datetime, timedelta
 
 from .api import IntervalsAPI
@@ -27,12 +28,12 @@ DEBRIEF_MARK = "Coach-Debrief"
 
 class GCal:
     def __init__(self, calendar_id: str, session=None, dry_run: bool = False):
-        self.url = BASE.format(cal=calendar_id)
+        self.url = BASE.format(cal=quote(calendar_id.strip(), safe="@."))
         self.dry_run = dry_run
         if session is None:
             from google.auth.transport.requests import AuthorizedSession
             from google.oauth2 import service_account
-            info = json.loads(os.environ["GOOGLE_SA_JSON"])
+            info = json.loads(os.environ["GOOGLE_SA_JSON"].strip())
             creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
             session = AuthorizedSession(creds)
         self.s = session
@@ -87,6 +88,16 @@ def _timed(start_local: str, seconds: float, tz: str) -> dict:
             "end": {"dateTime": en.isoformat(), "timeZone": tz}}
 
 
+def _planned_slot(e: dict, d: str, dur: float, cfg: dict, tz: str) -> dict:
+    """Timed slot: intervals.icu time if set, else default (weekday/weekend)."""
+    t = (e.get("start_date_local") or "")[11:16]
+    if not t or t == "00:00":
+        times = cfg.get("gcal", {}).get("default_times", {})
+        weekend = date.fromisoformat(d).weekday() >= 5
+        t = times.get("weekend" if weekend else "weekday") or ("10:00" if weekend else "16:30")
+    return _timed(f"{d}T{t}:00", dur or 3600, tz)
+
+
 def _coach_message(msgs: list[dict]) -> str | None:
     hits = [m.get("content") or "" for m in msgs if DEBRIEF_MARK in (m.get("content") or "")]
     return hits[-1] if hits else None
@@ -135,27 +146,28 @@ def build_events(api: IntervalsAPI, cfg: dict, today: date) -> dict[str, dict]:
         name = e.get("name") or "Lauf"
         plan_txt = render_plan(desc)
         act = by_event.get(e["id"])
+        key = f"event-{e['id']}"
         if act:
             prefix, body, color = _done_parts(act, msg_for(act), tol)
-            out[f"event-{e['id']}"] = {
-                "summary": _title(prefix, name), "colorId": color,
-                "description": f"{body}\n\n— Plan —\n{plan_txt}".strip(),
-                **_timed(act.get("start_date_local", f"{d}T07:00:00"),
-                         act.get("elapsed_time") or act.get("moving_time") or 3600, tz)}
-        elif d < today.isoformat():
-            out[f"event-{e['id']}"] = {"summary": f"⏭️ {name} (nicht absolviert)", "colorId": COLORS["missed"],
-                                       "description": plan_txt, **_allday(d)}
-        else:
-            dist, dur = plan_totals(parse_workout(desc, "easy"), zones)
-            intro, _ = split_description(desc)
-            head = f"🏃 {name}"
-            if dist:
-                head += f" · ≈{dist / 1000:.0f} km"
-            if dur:
-                head += f" · {dur / 60:.0f} min"
-            text = "\n".join(intro) + ("\n\n" if intro else "") + plan_txt
-            out[f"event-{e['id']}"] = {"summary": head, "colorId": COLORS["planned"],
-                                       "description": text.strip(), **_allday(d)}
+            out[key] = {"summary": _title(prefix, name), "colorId": color,
+                        "description": f"{body}\n\n— Plan —\n{plan_txt}".strip(),
+                        **_timed(act.get("start_date_local", f"{d}T07:00:00"),
+                                 act.get("elapsed_time") or act.get("moving_time") or 3600, tz)}
+            continue
+        dist, dur = plan_totals(parse_workout(desc, "easy"), zones)
+        slot = _planned_slot(e, d, dur, cfg, tz)
+        if d < today.isoformat():
+            out[key] = {"summary": f"⏭️ {name} (nicht absolviert)", "colorId": COLORS["missed"],
+                        "description": plan_txt, **slot}
+            continue
+        intro, _ = split_description(desc)
+        head = f"🏃 {name}"
+        if dist:
+            head += f" · ≈{dist / 1000:.0f} km"
+        if dur:
+            head += f" · {dur / 60:.0f} min"
+        text = "\n".join(intro) + ("\n\n" if intro else "") + plan_txt
+        out[key] = {"summary": head, "colorId": COLORS["planned"], "description": text.strip(), **slot}
 
     for a in acts:
         if a.get("paired_event_id"):
