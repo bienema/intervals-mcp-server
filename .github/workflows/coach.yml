@@ -2,7 +2,7 @@ name: coach
 
 on:
   schedule:
-    - cron: "15 */2 * * *"   # debrief: every 2 hours
+    - cron: "*/30 * * * *"   # debrief + calendar: every 30 minutes
     - cron: "0 4 * * *"      # briefing: 05:00 CET / 06:00 CEST
     - cron: "0 18 * * 0"     # weekly review: Sunday 19:00 CET / 20:00 CEST
   workflow_dispatch:
