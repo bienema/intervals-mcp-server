@@ -1,0 +1,45 @@
+name: coach
+
+on:
+  schedule:
+    - cron: "15 */2 * * *"   # debrief: every 2 hours
+    - cron: "0 4 * * *"      # briefing: 05:00 CET / 06:00 CEST
+    - cron: "0 18 * * 0"     # weekly review: Sunday 19:00 CET / 20:00 CEST
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Job"
+        type: choice
+        options: [debrief, briefing, weekly]
+        default: debrief
+      args:
+        description: "Extra args, e.g. --activity i123456 --force --dry-run"
+        required: false
+        default: ""
+
+concurrency:
+  group: coach
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pyyaml
+      - name: Run coach job
+        env:
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CRON_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python -m coach.run ${{ inputs.job }} ${{ inputs.args }}
+          else
+            python -m coach.run auto
+          fi
