@@ -9,6 +9,7 @@ kommen aus dem Gemini Free Tier.
 | `debrief` | alle 2 h | Kommentar mit Score + Debriefing an jeder neuen Laufaktivität |
 | `briefing` | täglich 05:00 (Winter) / 06:00 (Sommer) | Zeile „Tagesform (auto)“ im heutigen Workout |
 | `weekly` | sonntags 19:00 / 20:00 | Notiz „Wochenrückblick KW xx“ im Kalender |
+| `calendar` | nach jedem Job | Google-Kalender „Training“: Plan, Briefing, Debriefing mit Score im Titel |
 
 ## 1. Gemini-API-Key holen (kostenlos)
 1. https://aistudio.google.com öffnen, mit Google-Konto anmelden.
@@ -37,7 +38,7 @@ COACH.md                    neu
 ## 3. Lokal testen
 ```
 python3 -m pip install requests pyyaml pytest
-python3 -m pytest tests/test_coach.py -q        # erwartet: 14 passed
+python3 -m pytest tests/test_coach.py -q        # erwartet: 18 passed
 ```
 
 ## 4. Hochladen
@@ -63,12 +64,28 @@ starten. Ab dann laufen die Jobs automatisch.
 Achtung bei öffentlichem Repo: Action-Logs sind öffentlich. Im Normalbetrieb stehen dort nur
 Aktivitäts-ID, Titel und Score; `--dry-run` zeigt den kompletten Text. Nur kurz zum Testen nutzen.
 
+## Google Kalender (optional, kostenlos)
+Termine im eigenen Kalender „Training“ (7 Tage zurück, 14 Tage voraus):
+- geplant: „🏃 Long Run · ≈15 km · 90 min“ (ganztägig), Beschreibung = Briefing + Plan
+- erledigt: „✅ 🟢 92 · Long Run“ zur tatsächlichen Laufzeit, Beschreibung = Score, Ist-Daten, Debriefing, Plan
+- verpasst: „⏭️ Long Run (nicht absolviert)“
+- sonntags: „📊 Wochenrückblick KW xx“
+
+Einrichtung:
+1. console.cloud.google.com → Projekt anlegen (ohne Abrechnung) → „Google Calendar API“ aktivieren
+2. IAM und Verwaltung → Dienstkonten → Dienstkonto erstellen → Schlüssel → JSON herunterladen
+3. calendar.google.com → neuen Kalender „Training“ → Einstellungen → für das Dienstkonto
+   freigeben mit „Änderungen an Terminen vornehmen“ → Kalender-ID kopieren
+4. GitHub-Secrets: `GOOGLE_SA_JSON` (kompletter Inhalt der JSON-Datei), `GCAL_CALENDAR_ID`
+5. Test: Actions → coach → Run workflow → Job `calendar`, Args `--dry-run`
+
 ## Manuelle Läufe
 | Zweck | Job | Args |
 |---|---|---|
 | Debriefing für eine Aktivität neu erzeugen | `debrief` | `--activity i123456 --force` |
 | Wochenrückblick einer bestimmten Woche | `weekly` | `--date 2026-11-01` |
 | Briefing für ein Datum | `briefing` | `--date 2026-10-27` |
+| Nur Kalender abgleichen | `calendar` | – |
 | Nur anzeigen statt schreiben | beliebig | `--dry-run` anhängen |
 
 ## Einstellungen (config/coach.yaml)
@@ -89,6 +106,8 @@ coach/workout.py    liest die Workout-Struktur aus der Beschreibung
 coach/hrfilter.py   erkennt Sensor-Ausreißer im Puls
 coach/scoring.py    Score-Engine (deterministisch)
 coach/llm.py        Gemini / Claude / keine – mit Fallback
+coach/facts.py      Plan im Klartext (Runna-Stil) und Ist-Daten pro Abschnitt
+coach/gcal.py       Google-Kalender-Sync
 coach/jobs.py       debrief / briefing / weekly
 coach/run.py        Kommandozeile
 ```

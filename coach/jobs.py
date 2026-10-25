@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from . import llm
 from .api import IntervalsAPI
+from .facts import render_actual
 from .scoring import ScoreResult, Zones, fmt_pace, score_activity, score_line
 from .workout import parse_workout, planned_duration
 
@@ -34,8 +35,9 @@ def workout_type(event: dict | None, steps) -> str | None:
 # =============================================================================
 # Debrief
 # =============================================================================
-def _debrief_prompt(res: ScoreResult, event: dict | None, act: dict) -> str:
+def _debrief_prompt(res: ScoreResult, event: dict | None, act: dict, facts: str = "") -> str:
     payload = {
+        "ist_daten": facts,
         "einheit": event.get("name") if event else act.get("name"),
         "typ": res.workout_type,
         "plan": (event or {}).get("description", ""),
@@ -85,13 +87,15 @@ def debrief(api: IntervalsAPI, cfg: dict, activity_id: str | None = None, force:
         wtype = workout_type(event, steps)
         if wtype:
             steps = parse_workout(event.get("description", ""), wtype)
+        ivs = api.intervals(aid)
         res = score_activity(wtype or "unplanned", steps if event else [], act,
-                             api.intervals(aid), api.streams(aid), zones, cfg)
+                             ivs, api.streams(aid), zones, cfg)
         if wtype == "test":
             res.notes.append("Testlauf: kein Score. Schwellenwerte bitte im Chat auswerten lassen.")
-        text = llm.complete(_debrief_prompt(res, event, act), cfg) or _debrief_fallback(res)
+        facts = render_actual(act, ivs, steps if event else [], cfg["pace_tolerance"])
+        text = llm.complete(_debrief_prompt(res, event, act, facts), cfg) or _debrief_fallback(res)
         title = event["name"] if event else f"{act.get('name', 'Lauf')} (ungeplant)"
-        body = [f"🏃 {DEBRIEF_MARK} · {title}", score_line(res), "", text]
+        body = [f"🏃 {DEBRIEF_MARK} · {title}", score_line(res), "", "Ist-Daten", facts, "", text]
         if res.notes:
             body += [""] + [f"ℹ️ {n}" for n in res.notes]
         api.post_message(aid, "\n".join(body))

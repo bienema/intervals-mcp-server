@@ -45,3 +45,8 @@ llm:
     - gemini-flash-lite-latest
   anthropic_model: claude-haiku-5-5
   max_tokens: 2048
+
+gcal:
+  enabled: true              # needs secrets GOOGLE_SA_JSON + GCAL_CALENDAR_ID
+  days_back: 7               # sync window
+  days_ahead: 14

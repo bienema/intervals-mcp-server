@@ -251,3 +251,121 @@ def test_llm_without_key_or_provider_returns_none(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     assert llm.complete("p", {"llm": {"provider": "gemini"}}) is None
     assert llm.complete("p", {"llm": {"provider": "none"}}) is None
+
+
+# -- facts / plan rendering --------------------------------------------------------------
+PYRAMID = """Ziel: Tempohärte.
+Zielwerte: siehe unten
+
+Warmup
+- 1km 5:00-5:30/km pace
+- 90s intensity=rest
+
+Block 1 4x
+- 600mtr 3:50/km pace
+- 90s intensity=rest
+
+Block 2 3x
+- 600mtr 3:45/km pace
+- 90s intensity=rest
+
+Cooldown
+- 1km 5:30-6:00/km pace"""
+
+
+def test_render_plan_runna_style():
+    from coach.facts import render_plan, split_description
+    txt = render_plan(PYRAMID)
+    assert "Aufwärmen: 1 km @ 5:00–5:30/km, 90 s Pause" in txt
+    assert "4× Block 1:\n• 600 m @ 3:50/km\n• 90 s Pause" in txt
+    assert "Auslaufen: 1 km @ 5:30–6:00/km" in txt
+    intro, groups = split_description(PYRAMID)
+    assert intro == ["Ziel: Tempohärte.", "Zielwerte: siehe unten"] and len(groups) == 4
+
+
+def test_render_actual_lists_reps_with_check():
+    from coach.facts import render_actual
+    steps = parse_workout(PYRAMID, "interval")
+    ivs, idx = [], 0
+    for s in steps:
+        pace = 330 if s.role in ("wu", "cd") else (s.pace_fast + 2 if s.pace_fast else 600)
+        if s.block == 2 and s.rep == 4 and s.role == "work":
+            pace = 245                                    # one rep too slow
+        dist = s.distance_m or (s.duration_s / pace * 1000)
+        ivs.append({"start_index": idx, "distance": dist, "average_speed": 1000 / pace,
+                    "average_heartrate": 165, "max_heartrate": 172,
+                    "type": "WORK" if s.role == "work" else "RECOVERY"})
+        idx += 100
+    act = {"distance": 8000, "moving_time": 3000, "average_heartrate": 152, "max_heartrate": 178,
+           "total_elevation_gain": 40, "average_cadence": 83, "icu_training_load": 62, "icu_rpe": 7}
+    txt = render_actual(act, ivs, steps, 0.025)
+    assert txt.startswith("Gesamt: 8 km · 50 min · Ø 6:15/km · Ø HF 152 (max 178)")
+    assert "• Wdh 1/4 · 600 m · 3:52/km · HF 165/172 ✓" in txt
+    assert "• Wdh 4/4 · 600 m · 4:05/km · HF 165/172 ✗ (Soll 3:50/km)" in txt
+    assert "Pause" not in txt
+
+
+# -- google calendar sync ------------------------------------------------------------------
+class FakeCal:
+    def __init__(self, have=None):
+        self.have, self.calls = have or {}, []
+
+    def managed(self, *_):
+        return self.have
+
+    def insert(self, body):
+        self.calls.append(("insert", body))
+
+    def update(self, eid, body):
+        self.calls.append(("update", eid, body))
+
+    def delete(self, eid):
+        self.calls.append(("delete", eid))
+
+
+def _cal_api():
+    api = FakeAPI()
+    api.activities = lambda *a: [
+        {"id": "i1", "type": "Run", "paired_event_id": 9, "start_date_local": "2026-10-26T07:05:00",
+         "elapsed_time": 2700, "distance": 7000, "moving_time": 2600},
+        {"id": "i2", "type": "Run", "start_date_local": "2026-10-25T11:24:49", "elapsed_time": 8600,
+         "distance": 23400, "moving_time": 8546}]
+    api.messages = lambda aid: ([{"content": "🏃 Coach-Debrief · Claude Test\nScore 92/100 🟢 · x\n\nIst-Daten\nGesamt: 7 km"}]
+                                if aid == "i1" else [])
+    api.events = lambda o, n, c=None: {
+        "WORKOUT": [{"id": 9, "type": "Run", "name": "Claude Test", "start_date_local": "2026-10-26T00:00:00",
+                     "description": EASY},
+                    {"id": 10, "type": "Run", "name": "Long Run", "start_date_local": "2026-10-31T00:00:00",
+                     "description": "Ziel: Grundlage.\n\nMain\n- 90m 5:40-6:10/km pace"}],
+        "NOTE": [{"id": 11, "name": "Wochenrückblick KW 43", "start_date_local": "2026-10-25T00:00:00",
+                  "description": "Umfang: 35 km"}]}.get(c, [])
+    return api
+
+
+def test_calendar_sync_builds_expected_events():
+    from coach.gcal import sync
+    cal = FakeCal()
+    stats = sync(_cal_api(), cal, CFG, date(2026, 10, 26))
+    bodies = {c[1]["extendedProperties"]["private"]["icu_key"]: c[1] for c in cal.calls}
+    assert stats["neu"] == 4
+    done = bodies["event-9"]
+    assert done["summary"] == "✅ 🟢 92 · Claude Test" and done["colorId"] == "10"
+    assert done["start"]["dateTime"] == "2026-10-26T07:05:00" and "— Plan —" in done["description"]
+    planned = bodies["event-10"]
+    assert planned["summary"].startswith("🏃 Long Run · ≈") and "90 min" in planned["summary"]
+    assert planned["description"].startswith("Ziel: Grundlage.") and planned["start"] == {"date": "2026-10-31"}
+    assert bodies["activity-i2"]["summary"] == "✅ Lauf · 23,4 km"
+    assert bodies["note-11"]["summary"] == "📊 Wochenrückblick KW 43"
+
+
+def test_calendar_sync_is_idempotent_and_deletes_removed_plans():
+    from coach.gcal import sync
+    cal = FakeCal()
+    sync(_cal_api(), cal, CFG, date(2026, 10, 26))
+    have = {c[1]["extendedProperties"]["private"]["icu_key"]: {**c[1], "id": f"g{k}"}
+            for k, c in enumerate(cal.calls)}
+    have["event-99"] = {"id": "gone", "extendedProperties": {"private": {"icu_key": "event-99"}}}
+    cal2 = FakeCal(have)
+    stats = sync(_cal_api(), cal2, CFG, date(2026, 10, 26))
+    assert stats == {"neu": 0, "geändert": 0, "gelöscht": 1, "unverändert": 4}
+    assert cal2.calls == [("delete", "gone")]
