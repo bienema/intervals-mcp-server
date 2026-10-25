@@ -10,7 +10,7 @@ on:
       job:
         description: "Job"
         type: choice
-        options: [debrief, briefing, weekly]
+        options: [debrief, briefing, weekly, calendar]
         default: debrief
       args:
         description: "Extra args, e.g. --activity i123456 --force --dry-run"
@@ -30,12 +30,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests pyyaml
+      - run: pip install requests pyyaml google-auth
       - name: Run coach job
         env:
           INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+          GCAL_CALENDAR_ID: ${{ secrets.GCAL_CALENDAR_ID }}
           CRON_SCHEDULE: ${{ github.event.schedule }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
